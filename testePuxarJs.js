@@ -1,20 +1,26 @@
 (function () {
-  const SELETOR_CAMPO = "#inpdata";
-  const INTERVALO_BUSCA_CAMPO = 500;
-  const INTERVALO_MONITORAMENTO = 300;
-  const TEMPO_MAXIMO_BUSCA = 15000;
+  const CONFIG = {
+    seletorCampo: "#inpdata",
+    intervaloBuscaCampo: 400,
+    intervaloMonitoramento: 250,
+    tempoMaximoBusca: 20000,
+    debug: true
+  };
 
-  let campoData = null;
-  let ultimoValorLido = null;
+  let campo = null;
+  let ultimoValor = null;
   let ultimoValorValidado = null;
-  let monitoramentoAtivo = false;
-  let bloqueandoExecucao = false;
+  let bloqueado = false;
+  let observer = null;
+  let monitor = null;
 
   function log(...args) {
-    console.log("[validacao-par-impar]", ...args);
+    if (CONFIG.debug) {
+      console.log("[PAR/IMPAR DATA]", ...args);
+    }
   }
 
-  function obterDiaDaData(valor) {
+  function parseDia(valor) {
     if (!valor) return null;
     const v = String(valor).trim();
 
@@ -31,160 +37,202 @@
     return null;
   }
 
-  function limparCampoComEventos(el) {
+  function limparCampo(el) {
     if (!el) return;
 
     el.value = "";
+    try { el.setAttribute("value", ""); } catch (e) {}
 
-    // dispara eventos para o Zeev perceber a limpeza
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
     el.dispatchEvent(new Event("blur", { bubbles: true }));
 
-    try {
-      el.setAttribute("value", "");
-    } catch (e) {}
-
     setTimeout(() => {
-      try {
-        el.focus();
-      } catch (e) {}
+      try { el.focus(); } catch (e) {}
     }, 50);
   }
 
-  function validarValorAtual(origem = "desconhecida") {
-    if (!campoData || bloqueandoExecucao) return;
+  function validar(origem) {
+    if (!campo || bloqueado) return;
 
-    const valor = (campoData.value || "").trim();
+    const valor = (campo.value || "").trim();
+    log("validar()", { origem, valor });
 
     if (!valor) {
-      ultimoValorLido = "";
+      ultimoValor = "";
       ultimoValorValidado = "";
       return;
     }
 
-    if (valor === ultimoValorValidado) return;
-
-    const dia = obterDiaDaData(valor);
-    if (dia == null) {
-      log(`Formato ainda inválido ou incompleto (${origem}):`, valor);
-      ultimoValorLido = valor;
+    // evita repetir no mesmo valor
+    if (valor === ultimoValorValidado) {
       return;
     }
 
-    log(`Validando (${origem}) ->`, valor, "| dia =", dia);
+    const dia = parseDia(valor);
+    if (dia == null) {
+      log("Formato ainda incompleto/não reconhecido:", valor);
+      ultimoValor = valor;
+      return;
+    }
 
-    ultimoValorLido = valor;
+    ultimoValor = valor;
     ultimoValorValidado = valor;
 
     if (dia % 2 !== 0) {
-      bloqueandoExecucao = true;
+      bloqueado = true;
 
       alert("A data informada possui dia ímpar. Selecione uma data com dia par.");
 
-      limparCampoComEventos(campoData);
+      limparCampo(campo);
 
-      ultimoValorLido = "";
+      ultimoValor = "";
       ultimoValorValidado = "";
 
       setTimeout(() => {
-        bloqueandoExecucao = false;
-      }, 200);
+        bloqueado = false;
+      }, 300);
+    } else {
+      log("Data válida (dia par):", valor);
     }
   }
 
-  function conectarEventosNoCampo(el) {
-    if (!el || el.dataset.validacaoParImparConectada === "S") return;
+  function conectarEventos(el) {
+    if (!el) return;
+    if (el.dataset.parImparConectado === "S") return;
+
+    log("Conectando eventos no campo", el);
 
     el.addEventListener("input", () => {
-      const valor = (el.value || "").trim();
-      ultimoValorLido = valor;
-
-      if (valor.length >= 10) {
-        validarValorAtual("input");
+      log("Evento input:", el.value);
+      ultimoValor = el.value;
+      if ((el.value || "").trim().length >= 10) {
+        validar("input");
       }
     });
 
     el.addEventListener("change", () => {
-      validarValorAtual("change");
+      log("Evento change:", el.value);
+      validar("change");
     });
 
     el.addEventListener("blur", () => {
-      validarValorAtual("blur");
+      log("Evento blur:", el.value);
+      validar("blur");
     });
 
-    el.dataset.validacaoParImparConectada = "S";
-    log("Eventos conectados ao campo");
+    // útil quando o usuário seleciona no calendário e clica em outro lugar
+    document.addEventListener("click", () => {
+      if (campo && campo.value) {
+        validar("document-click");
+      }
+    });
+
+    el.dataset.parImparConectado = "S";
   }
 
-  function iniciarMonitoramentoDeValor() {
-    if (monitoramentoAtivo) return;
-    monitoramentoAtivo = true;
+  function observarAtributos(el) {
+    if (!el) return;
+    if (observer) observer.disconnect();
 
-    setInterval(() => {
-      if (!campoData || bloqueandoExecucao) return;
+    observer = new MutationObserver(() => {
+      if (!campo || bloqueado) return;
 
-      if (!document.body.contains(campoData)) {
-        log("Campo foi recriado/removido. Tentando localizar novamente...");
-        campoData = document.querySelector(SELETOR_CAMPO);
+      const valorAtual = (campo.value || "").trim();
+      if (valorAtual && valorAtual !== ultimoValor) {
+        log("MutationObserver detectou mudança:", valorAtual);
+        ultimoValor = valorAtual;
+        validar("mutation");
+      }
+    });
 
-        if (campoData) {
-          log("Campo reencontrado após recriação");
-          conectarEventosNoCampo(campoData);
-        }
+    observer.observe(el, {
+      attributes: true,
+      attributeFilter: ["value"]
+    });
+
+    log("MutationObserver conectado");
+  }
+
+  function iniciarMonitoramento(el) {
+    if (monitor) clearInterval(monitor);
+
+    monitor = setInterval(() => {
+      if (!campo || bloqueado) return;
+
+      // se o Zeev recriar o campo, reconecta
+      if (!document.body.contains(campo)) {
+        log("Campo saiu do DOM. Tentando localizar novamente...");
+        localizarCampo();
         return;
       }
 
-      const valorAtual = (campoData.value || "").trim();
+      const valorAtual = (campo.value || "").trim();
 
-      if (valorAtual !== ultimoValorLido) {
-        log("Mudança silenciosa detectada:", valorAtual);
-        ultimoValorLido = valorAtual;
+      if (valorAtual !== ultimoValor) {
+        log("Monitor detectou mudança silenciosa:", valorAtual);
+        ultimoValor = valorAtual;
 
         if (valorAtual.length >= 10) {
-          validarValorAtual("monitoramento");
+          validar("monitor");
         }
       }
-    }, INTERVALO_MONITORAMENTO);
+    }, CONFIG.intervaloMonitoramento);
+
+    log("Monitoramento iniciado");
   }
 
-  function iniciarBuscaDoCampo() {
+  function prepararCampo(el) {
+    campo = el;
+    log("Campo encontrado:", campo);
+
+    conectarEventos(campo);
+    observarAtributos(campo);
+    iniciarMonitoramento(campo);
+
+    // valida valor já preenchido, caso o Zeev traga algo pronto
+    setTimeout(() => validar("valor-inicial"), 300);
+    setTimeout(() => validar("valor-inicial-2"), 1000);
+  }
+
+  function localizarCampo() {
+    const el = document.querySelector(CONFIG.seletorCampo);
+    if (el) {
+      prepararCampo(el);
+      return true;
+    }
+    return false;
+  }
+
+  function aguardarCampo() {
     const inicio = Date.now();
 
-    const timerBusca = setInterval(() => {
-      const encontrado = document.querySelector(SELETOR_CAMPO);
-
-      if (encontrado) {
-        campoData = encontrado;
-        log("Campo encontrado:", campoData);
-
-        conectarEventosNoCampo(campoData);
-        iniciarMonitoramentoDeValor();
-
-        clearInterval(timerBusca);
+    const timer = setInterval(() => {
+      if (localizarCampo()) {
+        clearInterval(timer);
         return;
       }
 
-      if (Date.now() - inicio > TEMPO_MAXIMO_BUSCA) {
-        clearInterval(timerBusca);
-        log(`Campo ${SELETOR_CAMPO} não encontrado após ${TEMPO_MAXIMO_BUSCA}ms`);
+      if (Date.now() - inicio > CONFIG.tempoMaximoBusca) {
+        clearInterval(timer);
+        log("Campo não encontrado no tempo limite:", CONFIG.seletorCampo);
       }
-    }, INTERVALO_BUSCA_CAMPO);
+    }, CONFIG.intervaloBuscaCampo);
   }
 
-  function iniciarQuandoDOMCarregar() {
-    log("Aguardando DOM carregar...");
+  function init() {
+    log("Script iniciado");
 
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", function () {
-        log("DOM carregado com sucesso");
-        iniciarBuscaDoCampo();
+      document.addEventListener("DOMContentLoaded", () => {
+        log("DOM carregado");
+        aguardarCampo();
       });
     } else {
-      log("DOM já estava carregado");
-      iniciarBuscaDoCampo();
+      log("DOM já carregado");
+      aguardarCampo();
     }
   }
 
-  iniciarQuandoDOMCarregar();
+  init();
 })();
