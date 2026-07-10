@@ -21,12 +21,9 @@ aguardarElemento("#inpdata", function (campo) {
     const valor = this.value;
     if (!valor) return;
 
-    let dia;
-    if (valor.includes("-")) {
-      dia = parseInt(valor.split("-")[2], 10);
-    } else if (valor.includes("/")) {
-      dia = parseInt(valor.split("/")[0], 10);
-    }
+    // Formato DD/MM/YYYY (campo mascarado)
+    const partes = valor.split("/");
+    const dia = parseInt(partes[0], 10);
 
     if (isNaN(dia)) return;
 
