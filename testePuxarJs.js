@@ -13,7 +13,7 @@ function aguardarElemento(seletor, callback) {
     }
   });
 
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
 }
 
 aguardarElemento("#inpdata", function (campo) {
@@ -21,7 +21,6 @@ aguardarElemento("#inpdata", function (campo) {
     const valor = this.value;
     if (!valor) return;
 
-    // Formato DD/MM/YYYY (campo mascarado)
     const partes = valor.split("/");
     const dia = parseInt(partes[0], 10);
 
