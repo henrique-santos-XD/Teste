@@ -34,4 +34,4 @@ aguardarElemento("#inpdata", function (campo) {
       alert("A data informada possui dia ímpar. Selecione uma data com dia par.");
     }
   });
-});o
+});
